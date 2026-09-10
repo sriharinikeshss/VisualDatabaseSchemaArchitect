@@ -13,6 +13,7 @@ import type {
 import '@xyflow/react/dist/style.css';
 import { useSchemaStore } from './store/useSchemaStore';
 import TableNode from './components/TableNode';
+import RelationshipEdge from './components/RelationshipEdge';
 import Sidebar from './components/Sidebar';
 import ValidationReportPanel from './components/ValidationReportPanel';
 import { validateSchema } from './utils/validationEngine';
@@ -20,6 +21,10 @@ import type { Table } from './types/schema';
 
 const nodeTypes = {
   tableNode: TableNode,
+};
+
+const edgeTypes = {
+  relationshipEdge: RelationshipEdge,
 };
 
 function App() {
@@ -47,6 +52,7 @@ function App() {
     id: r.relationship_id,
     source: r.source_table_id,
     target: r.target_table_id,
+    type: 'relationshipEdge',
     animated: true,
     label: r.cardinality,
     style: { stroke: '#94a3b8', strokeWidth: 2 }
@@ -202,6 +208,7 @@ function App() {
             onPaneClick={onPaneClick}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
           >
             <Background color="#cbd5e1" gap={16} />
