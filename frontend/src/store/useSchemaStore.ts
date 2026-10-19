@@ -1,12 +1,33 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import type { Table, Column, Relationship, ValidationReport } from '../types/schema';
+import type { Table, Column, Relationship, ValidationReport, Requirement } from '../types/schema';
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 interface SchemaState {
   tables: Table[];
   relationships: Relationship[];
   validationReports: ValidationReport[];
+
+  // Traceability State
+  requirements: Requirement[];
+  unreferencedTables: string[];
+  addRequirement: (text: string) => void;
+  updateRequirement: (id: string, updates: Partial<Requirement>) => void;
+  deleteRequirement: (id: string) => void;
+  setTraceabilityReport: (evaluatedReqs: Requirement[], unreferenced: string[]) => void;
+
+  // Chat State
+  isChatOpen: boolean;
+  chatMessages: ChatMessage[];
+  toggleChat: () => void;
+  addChatMessage: (msg: Omit<ChatMessage, 'id'>) => void;
+  clearChatMessages: () => void;
 
   // Actions
   addTable: (name: string, position: { x: number; y: number }) => void;
@@ -26,17 +47,65 @@ interface SchemaState {
 
   selectedTableId: string | null;
   setSelectedTable: (id: string | null) => void;
+
+  /** Ephemeral UI state — which relationship edge is currently hovered */
+  hoveredRelationshipId: string | null;
+  setHoveredRelationship: (id: string | null) => void;
+
+  setSchema: (tables: Table[], relationships: Relationship[]) => void;
+  activeProjectId: string | null;
+  projectName: string;
+  setProjectName: (name: string) => void;
+  setStoreState: (state: Partial<SchemaState>) => void;
+  clearStore: () => void;
 }
 
 export const useSchemaStore = create<SchemaState>()(
   persist(
     (set) => ({
+      activeProjectId: null,
+      projectName: 'Untitled Schema',
+      setProjectName: (name) => set({ projectName: name }),
+      setStoreState: (state) => set((prev) => ({ ...prev, ...state })),
+      clearStore: () => set({ tables: [], relationships: [], requirements: [], validationReports: [], chatMessages: [] }),
+      
       tables: [],
       relationships: [],
       validationReports: [],
+      
+      requirements: [],
+      unreferencedTables: [],
+      addRequirement: (text) => set((state) => ({
+        requirements: [...state.requirements, { id: uuidv4(), text }]
+      })),
+      updateRequirement: (id, updates) => set((state) => ({
+        requirements: state.requirements.map(r => r.id === id ? { ...r, ...updates } : r)
+      })),
+      deleteRequirement: (id) => set((state) => ({
+        requirements: state.requirements.filter(r => r.id !== id)
+      })),
+      setTraceabilityReport: (evaluatedReqs, unreferenced) => set({
+        requirements: evaluatedReqs,
+        unreferencedTables: unreferenced
+      }),
+      
+      isChatOpen: false,
+      chatMessages: [
+        { id: uuidv4(), role: 'assistant', content: 'Hi! Describe your database or ask me to modify the existing tables.' }
+      ],
+      toggleChat: () => set((state) => ({ isChatOpen: !state.isChatOpen })),
+      addChatMessage: (msg) => set((state) => ({ 
+        chatMessages: [...state.chatMessages, { ...msg, id: uuidv4() }] 
+      })),
+      clearChatMessages: () => set({ 
+        chatMessages: [{ id: uuidv4(), role: 'assistant', content: 'Hi! Describe your database or ask me to modify the existing tables.' }] 
+      }),
+
       selectedTableId: null,
+      hoveredRelationshipId: null,
 
       setSelectedTable: (id) => set({ selectedTableId: id }),
+      setHoveredRelationship: (id) => set({ hoveredRelationshipId: id }),
 
       addTable: (name, position) => set((state) => {
         // Prevent duplicate table names (FR-5)
@@ -127,13 +196,16 @@ export const useSchemaStore = create<SchemaState>()(
       }),
 
       setValidationReports: (reports) => set({ validationReports: reports }),
-      clearValidationReports: () => set({ validationReports: [] })
+      clearValidationReports: () => set({ validationReports: [] }),
+      
+      setSchema: (tables, relationships) => set({ tables, relationships, validationReports: [], selectedTableId: null })
     }),
     {
       name: 'schema-architect-storage', // key in local storage
       partialize: (state) => ({ 
         tables: state.tables, 
-        relationships: state.relationships 
+        relationships: state.relationships,
+        requirements: state.requirements
       }), // only save these parts of the state
     }
   )

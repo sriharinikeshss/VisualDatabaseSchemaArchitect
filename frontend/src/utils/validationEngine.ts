@@ -8,6 +8,9 @@ export function validateSchema(tables: Table[], relationships: Relationship[]): 
   tables.forEach(t => adjList.set(t.table_id, []));
   
   relationships.forEach(r => {
+    // Skip self-referential FKs (e.g. categories.parent_category_id → categories)
+    // — those are valid hierarchical patterns, not circular dependencies.
+    if (r.source_table_id === r.target_table_id) return;
     if (adjList.has(r.source_table_id)) {
       adjList.get(r.source_table_id)!.push(r.target_table_id);
     }
@@ -50,15 +53,38 @@ export function validateSchema(tables: Table[], relationships: Relationship[]): 
   }
 
   // 2. Normalization Checks (FR-11, FR-12)
+
+  // Known single-value suffixes that are NOT 1NF violations despite ending in 's'
+  const FALSE_POSITIVE_SUFFIXES = [
+    'status', 'notes', 'address', 'progress', 'access', 'class', 'process',
+    'diagnosis', 'analysis', 'basis', 'census', 'focus', 'bonus', 'campus',
+    'apparatus', 'nexus', 'alias', 'canvas', 'chorus', 'corpus', 'callus',
+    'details', 'ss', 'ness', 'ess', 'oss', 'uss', 'iss',
+  ];
+  // Known single-value whole names safe to skip
+  const FALSE_POSITIVE_NAMES = new Set([
+    'notes', 'address', 'status', 'progress', 'description', 'diagnosis',
+    'symptoms', 'allergies', 'remarks', 'comments', 'details', 'instructions',
+    'dosage_instructions', 'medical_history', 'test_results', 'lab_results',
+  ]);
+  // Column name patterns that genuinely suggest multi-value storage
+  const MULTI_VALUE_PATTERN = /^(tags|phones|emails|urls|images|attachments|categories|flags|roles|permissions|skills|hobbies|languages|aliases)\w*$/;
+
   tables.forEach(table => {
-    // Check 1NF: plural names or numbered arrays
+    // Check 1NF: only flag columns that strongly suggest multi-value storage
     table.columns.forEach(col => {
       const name = col.name.toLowerCase();
-      // Heuristics for 1NF violation
-      if (
-        (name.endsWith('s') && !name.endsWith('ss') && !name.endsWith('status') && !name.endsWith('details')) || 
-        /\d+$/.test(name)
-      ) {
+
+      // Skip known safe names
+      if (FALSE_POSITIVE_NAMES.has(name)) return;
+
+      // Skip columns ending in known safe suffixes
+      if (FALSE_POSITIVE_SUFFIXES.some(sfx => name.endsWith(sfx))) return;
+
+      const isSuspiciousPlural = MULTI_VALUE_PATTERN.test(name);
+      const hasNumericSuffix = /\d+$/.test(name);
+
+      if (isSuspiciousPlural || hasNumericSuffix) {
         reports.push({
           rule_violated: '1NF Violation (FR-11)',
           severity: 'Warning',
@@ -86,6 +112,45 @@ export function validateSchema(tables: Table[], relationships: Relationship[]): 
         severity: 'Warning',
         message: `Table '${table.name}' has over 15 columns. Ensure all columns depend strictly on the primary key, or normalize into smaller tables.`
       });
+    }
+
+    // Check 2NF: Composite Primary Keys
+    const pkCount = table.columns.filter(col => col.is_primary_key).length;
+    const nonPkCount = table.columns.length - pkCount;
+    if (pkCount >= 2 && nonPkCount > 0) {
+      reports.push({
+        rule_violated: '2NF Violation (FR-12)',
+        severity: 'Warning',
+        message: `Table '${table.name}' uses a composite primary key. Ensure all columns depend on BOTH keys, or consider using a single 'id' primary key.`
+      });
+    }
+
+    // Check 3NF: Repeated Column Prefixes
+    const prefixGroups: Record<string, string[]> = {};
+    const tableNameLower = table.name.toLowerCase();
+
+    table.columns.forEach(col => {
+      if (col.is_primary_key) return; // Ignore PKs
+
+      const parts = col.name.toLowerCase().split('_');
+      if (parts.length > 1) {
+        const prefix = parts[0];
+        // Skip if prefix matches or is singular form of table name
+        if (!tableNameLower.startsWith(prefix) && prefix.length > 2) {
+          if (!prefixGroups[prefix]) prefixGroups[prefix] = [];
+          prefixGroups[prefix].push(col.name);
+        }
+      }
+    });
+
+    for (const [prefix, cols] of Object.entries(prefixGroups)) {
+      if (cols.length >= 2) {
+        reports.push({
+          rule_violated: '3NF Violation (FR-12)',
+          severity: 'Warning',
+          message: `Table '${table.name}' contains grouped columns ('${prefix}_...'). These may be transitive dependencies. Consider extracting these into a separate '${prefix.charAt(0).toUpperCase() + prefix.slice(1)}s' table.`
+        });
+      }
     }
   });
 

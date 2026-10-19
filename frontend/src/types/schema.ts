@@ -29,3 +29,11 @@ export interface ValidationReport {
   severity: 'Error' | 'Warning';
   message: string;
 }
+
+export interface Requirement {
+  id: string;
+  text: string;
+  is_supported?: boolean;
+  involved_tables?: string[];
+  reason?: string;
+}

@@ -1,149 +1,212 @@
+import { useState, useEffect } from 'react';
 import { useSchemaStore } from '../store/useSchemaStore';
+import type { Column } from '../types/schema';
+
+// Per-column editor with local state — only commits to store on Save
+function ColumnEditor({ tableId, col }: { tableId: string; col: Column }) {
+  const { updateColumn, removeColumn } = useSchemaStore();
+
+  const [local, setLocal] = useState<Column>(col);
+  const [dirty, setDirty] = useState(false);
+
+  // Reset local state when the store column changes (table switch or external update)
+  useEffect(() => {
+    setLocal(col);
+    setDirty(false);
+  }, [col.column_id]);
+
+  const set = (patch: Partial<Column>) => {
+    setLocal(prev => ({ ...prev, ...patch }));
+    setDirty(true);
+  };
+
+  const handleSave = () => {
+    updateColumn(tableId, col.column_id, {
+      name: local.name,
+      datatype: local.datatype,
+      is_primary_key: local.is_primary_key,
+      is_not_null: local.is_not_null,
+      is_unique: local.is_unique,
+      check_constraint: local.check_constraint,
+    });
+    setDirty(false);
+  };
+
+  return (
+    <div className="flex flex-col gap-3 p-3.5 bg-[#121215] border border-zinc-800/80 rounded-xl relative group transition-colors hover:border-zinc-700">
+      
+      {/* Column Name Input */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex justify-between items-center">
+          <label className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">Column Name</label>
+          <button
+            onClick={() => removeColumn(tableId, col.column_id)}
+            className="text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+            title="Delete Column"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={local.name}
+            onChange={(e) => set({ name: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
+            className="flex-1 bg-[#09090b] border border-zinc-800 px-3 py-1.5 rounded-md text-xs font-mono focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 text-zinc-200 transition-all"
+          />
+        </div>
+      </div>
+
+      {/* Datatype Select */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">Datatype</label>
+        <select
+          value={local.datatype}
+          onChange={(e) => set({ datatype: e.target.value })}
+          className="w-full bg-[#09090b] border border-zinc-800 px-3 py-1.5 rounded-md text-xs font-mono text-zinc-300 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all cursor-pointer"
+        >
+          {![
+            'INTEGER', 'BIGINT', 'SMALLINT', 'SERIAL', 'BIGSERIAL',
+            'VARCHAR(255)', 'VARCHAR(100)', 'TEXT', 'CHAR(1)', 'BOOLEAN',
+            'UUID', 'TIMESTAMP', 'TIMESTAMPTZ', 'DATE', 'TIME',
+            'DECIMAL(10, 2)', 'NUMERIC(10, 2)', 'FLOAT', 'DOUBLE PRECISION',
+            'JSONB', 'JSON'
+          ].includes(local.datatype?.toUpperCase()) && (
+            <option value={local.datatype}>{local.datatype} (Custom)</option>
+          )}
+          <optgroup label="Numeric">
+            <option value="INTEGER">INTEGER</option>
+            <option value="BIGINT">BIGINT</option>
+            <option value="SMALLINT">SMALLINT</option>
+            <option value="SERIAL">SERIAL</option>
+            <option value="DECIMAL(10, 2)">DECIMAL(10, 2)</option>
+            <option value="FLOAT">FLOAT</option>
+          </optgroup>
+          <optgroup label="String">
+            <option value="VARCHAR(255)">VARCHAR(255)</option>
+            <option value="TEXT">TEXT</option>
+          </optgroup>
+          <optgroup label="Date & Time">
+            <option value="TIMESTAMP">TIMESTAMP</option>
+            <option value="DATE">DATE</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option value="BOOLEAN">BOOLEAN</option>
+            <option value="UUID">UUID</option>
+            <option value="JSONB">JSONB</option>
+          </optgroup>
+        </select>
+      </div>
+
+      {/* Sleek Pill Toggles for Flags */}
+      <div className="flex flex-col gap-1.5 mt-1">
+        <label className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">Constraints</label>
+        <div className="flex gap-2 items-center">
+          {(['is_primary_key', 'is_not_null', 'is_unique'] as const).map((flag, i) => {
+            const label = ['PK', 'NN', 'UQ'][i];
+            const isSelected = local[flag];
+            return (
+              <button 
+                key={flag} 
+                onClick={() => set({ [flag]: !local[flag] })}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                  isSelected 
+                    ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30 shadow-[inset_0_0_10px_rgba(99,102,241,0.15)]' 
+                    : 'bg-[#09090b] text-zinc-500 border-zinc-800 hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+              >
+                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />}
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Check Constraint */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex justify-between items-center">
+          <label className="text-[10px] font-bold tracking-wider text-zinc-500 uppercase">CHECK</label>
+        </div>
+        <input
+          type="text"
+          value={local.check_constraint || ''}
+          onChange={(e) => set({ check_constraint: e.target.value })}
+          className="w-full bg-[#09090b] px-3 py-1.5 border border-zinc-800 rounded-md text-xs font-mono focus:outline-none focus:border-indigo-500/50 text-zinc-300 placeholder-zinc-700"
+          placeholder="e.g., age > 18"
+        />
+      </div>
+
+      {/* Save Button */}
+      {dirty && (
+        <button
+          onClick={handleSave}
+          className="w-full font-bold text-xs py-1.5 mt-2 rounded-md transition-all shadow-sm bg-zinc-100 hover:bg-white text-zinc-900 border border-transparent hover:border-zinc-300 animate-in fade-in slide-in-from-top-1"
+        >
+          Save Changes
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function Sidebar() {
-  const { 
-    selectedTableId, 
-    tables, 
-    updateTable, 
-    addColumn, 
-    updateColumn, 
-    removeColumn,
-    removeTable,
-    setSelectedTable
-  } = useSchemaStore();
+  const { tables, selectedTableId, updateTable, addColumn, removeTable } = useSchemaStore();
 
   const table = tables.find(t => t.table_id === selectedTableId);
-
-  if (!table) {
-    return (
-      <div className="w-80 bg-white border-l border-slate-200 p-6 flex flex-col shadow-xl z-10 h-full overflow-y-auto text-slate-500 justify-center items-center">
-        <p className="text-center">Select a table on the canvas to edit its properties.</p>
-      </div>
-    );
-  }
+  if (!table) return null;
 
   const handleAddColumn = () => {
     addColumn(table.table_id, {
       name: 'new_column',
-      datatype: 'varchar',
+      datatype: 'VARCHAR(255)',
       is_primary_key: false,
-      is_not_null: false,
       is_unique: false,
+      is_not_null: false,
     });
   };
 
   const handleDeleteTable = () => {
-    if (confirm(`Are you sure you want to delete the table '${table.name}'?`)) {
+    if (window.confirm(`Delete table '${table.name}'?`)) {
       removeTable(table.table_id);
-      setSelectedTable(null);
     }
   };
 
   return (
-    <div className="w-80 bg-white border-l border-slate-200 flex flex-col shadow-xl z-10 h-full">
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-        <h2 className="font-bold text-slate-800 text-lg">Table Properties</h2>
-        <button onClick={() => setSelectedTable(null)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
-      </div>
-      
-      <div className="p-4 flex-1 overflow-y-auto">
-        <div className="mb-6">
-          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Table Name</label>
-          <input 
-            type="text" 
-            value={table.name}
-            onChange={(e) => updateTable(table.table_id, e.target.value)}
-            className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          />
+    <div className="w-[340px] bg-[#09090b] border-l border-zinc-800 flex flex-col h-full text-zinc-100 shadow-xl z-20 overflow-hidden">
+      <div className="p-4 border-b border-zinc-800 bg-[#09090b]">
+        <div className="flex items-center gap-2 mb-2 text-zinc-400">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+          <span className="text-[10px] font-bold tracking-widest uppercase">Table Inspector</span>
         </div>
+        <input
+          type="text"
+          value={table.name}
+          onChange={(e) => updateTable(table.table_id, e.target.value)}
+          className="w-full bg-transparent font-mono text-base font-bold focus:outline-none focus:text-indigo-400 transition-colors text-zinc-100"
+        />
+      </div>
 
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Columns</label>
-            <button onClick={handleAddColumn} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 font-semibold">+ Add</button>
-          </div>
-          
-          <div className="flex flex-col gap-4">
-            {table.columns.map((col) => (
-              <div key={col.column_id} className="bg-slate-50 p-3 rounded border border-slate-200 relative">
-                <button 
-                  onClick={() => removeColumn(table.table_id, col.column_id)}
-                  className="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold text-sm"
-                  title="Remove column"
-                >✕</button>
-                
-                <div className="mb-2 pr-6">
-                  <input 
-                    type="text" 
-                    value={col.name}
-                    onChange={(e) => updateColumn(table.table_id, col.column_id, { name: e.target.value })}
-                    className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:border-blue-500"
-                    placeholder="Column name"
-                  />
-                </div>
-                
-                <div className="mb-2">
-                  <select 
-                    value={col.datatype}
-                    onChange={(e) => updateColumn(table.table_id, col.column_id, { datatype: e.target.value })}
-                    className="w-full px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    <option value="integer">integer</option>
-                    <option value="varchar">varchar</option>
-                    <option value="text">text</option>
-                    <option value="boolean">boolean</option>
-                    <option value="timestamp">timestamp</option>
-                    <option value="date">date</option>
-                    <option value="numeric">numeric</option>
-                  </select>
-                </div>
-                
-                <div className="flex gap-3 text-xs font-medium text-slate-600">
-                  <label className="flex items-center gap-1 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={col.is_primary_key}
-                      onChange={(e) => updateColumn(table.table_id, col.column_id, { is_primary_key: e.target.checked })}
-                    /> PK
-                  </label>
-                  <label className="flex items-center gap-1 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={col.is_unique}
-                      onChange={(e) => updateColumn(table.table_id, col.column_id, { is_unique: e.target.checked })}
-                    /> UQ
-                  </label>
-                  <label className="flex items-center gap-1 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={col.is_not_null}
-                      onChange={(e) => updateColumn(table.table_id, col.column_id, { is_not_null: e.target.checked })}
-                    /> NN
-                  </label>
-                </div>
-                
-                <div className="mt-2">
-                  <input 
-                    type="text" 
-                    value={col.check_constraint || ''}
-                    onChange={(e) => updateColumn(table.table_id, col.column_id, { check_constraint: e.target.value })}
-                    className="w-full px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:border-blue-500 placeholder-slate-300"
-                    placeholder="CHECK (e.g., age > 18)"
-                  />
-                </div>
-              </div>
-            ))}
-            {table.columns.length === 0 && (
-              <p className="text-sm text-slate-400 italic">No columns defined.</p>
-            )}
-          </div>
-        </div>
+      <div className="flex border-b border-zinc-800 px-4 pt-3 gap-4 text-xs font-medium">
+        <div className="pb-2 border-b-2 border-indigo-500 text-zinc-100">Columns ({table.columns.length})</div>
       </div>
-      
-      <div className="p-4 border-t border-slate-200">
-        <button 
+
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+        {table.columns.map((col) => (
+          <ColumnEditor key={col.column_id} tableId={table.table_id} col={col} />
+        ))}
+        <button
+          onClick={handleAddColumn}
+          className="w-full py-2 border border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-500 hover:text-zinc-300 rounded text-xs font-medium transition-colors"
+        >
+          + Add New Column
+        </button>
+      </div>
+
+      <div className="p-4 bg-[#09090b] border-t border-zinc-800">
+        <button
           onClick={handleDeleteTable}
-          className="w-full py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 rounded font-semibold transition-colors"
+          className="w-full py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 rounded font-semibold transition-colors text-xs"
         >
           Delete Table
         </button>
@@ -151,3 +214,5 @@ export default function Sidebar() {
     </div>
   );
 }
+
+
